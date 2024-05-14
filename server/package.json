@@ -1,5 +1,5 @@
 {
-  "name": "bash-language-server",
+  "name": "neo-bash-ls",
   "description": "A language server for Bash",
   "author": "Mads Hartmann",
   "license": "MIT",
@@ -28,7 +28,8 @@
     "zod": "3.22.4"
   },
   "scripts": {
-    "prepublishOnly": "cd ../ && pnpm compile && cp README.md server/"
+    "prepublishOnly": "cd ../ && pnpm compile && cp README.md server/",
+    "build": "tsc"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
