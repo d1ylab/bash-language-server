@@ -20,6 +20,9 @@ import { uniqueBasedOnHash } from './util/array'
 import { logger, setLogConnection, setLogLevel } from './util/logger'
 import { isPositionIncludedInRange } from './util/lsp'
 import { getShellDocumentation } from './util/sh'
+import { Tldr } from './util/tldr'
+import { homedir } from 'os'
+import { join } from 'path'
 
 const PARAMETER_EXPANSION_PREFIXES = new Set(['$', '${'])
 const CONFIGURATION_SECTION = 'bashIde'
@@ -38,6 +41,7 @@ export default class BashServer {
   private linter?: Linter
   private formatter?: Formatter
   private workspaceFolder: string | null
+  private tldr?: Tldr
   private uriToCodeActions: {
     [uri: string]: LintingResult['codeActions'] | undefined
   } = {}
@@ -70,6 +74,10 @@ export default class BashServer {
     this.updateConfiguration(config.getDefaultConfiguration(), true)
   }
 
+  public setTldr(tldr: Tldr) {
+    this.tldr = tldr
+  }
+
   /**
    * Initialize the server based on a connection to the client and the protocols
    * initialization parameters.
@@ -90,6 +98,13 @@ export default class BashServer {
       throw new Error('Expected PATH environment variable to be set')
     }
 
+    logger.debug('Initializing tldr')
+    const tldrCache = join(homedir(), '.tldr', 'cache')
+    const tldr = new Tldr(tldrCache, 'en')
+    tldr.updateCache().then(_=> {
+      logger.debug('tldr cache updated')
+    })
+
     const parser = await initializeParser()
     const analyzer = new Analyzer({
       parser,
@@ -105,6 +120,7 @@ export default class BashServer {
       executables,
       workspaceFolder,
     })
+    server.setTldr(tldr)
 
     logger.debug('Initialized')
 
@@ -286,6 +302,10 @@ export default class BashServer {
             this.formatter = undefined
           } else {
             this.formatter = new Formatter({ executablePath: shfmtPath })
+          }
+          
+          if (this.tldr) {
+            this.tldr.updateLang(this.config.tldrLanguage ?? 'en')
           }
 
           this.analyzer.setEnableSourceErrorDiagnostics(
@@ -519,13 +539,26 @@ export default class BashServer {
         }
       })
 
-    const builtinsCompletions = Builtins.LIST.map((builtin) => ({
-      label: builtin,
-      kind: LSP.CompletionItemKind.Function,
-      data: {
-        type: CompletionItemDataType.Builtin,
-      },
-    }))
+    let items = []
+    if (this.tldr) {
+      items = this.tldr.commands().map(item=> {
+        return {
+          label: item,
+          kind: LSP.CompletionItemKind.Function,
+          data: {
+            type: CompletionItemDataType.Builtin,
+          },
+        }
+      })
+    } else {
+      items = Builtins.LIST.map((builtin) => ({
+        label: builtin,
+        kind: LSP.CompletionItemKind.Function,
+        data: {
+          type: CompletionItemDataType.Builtin,
+        },
+      }))
+    }
 
     let optionsCompletions: BashCompletionItem[] = []
     if (word?.startsWith('-')) {
@@ -564,7 +597,7 @@ export default class BashServer {
       ...reservedWordsCompletions,
       ...symbolCompletions,
       ...programCompletions,
-      ...builtinsCompletions,
+      ...items,
       ...optionsCompletions,
       ...SNIPPETS,
     ]
@@ -595,13 +628,21 @@ export default class BashServer {
         type === CompletionItemDataType.Builtin ||
         type === CompletionItemDataType.ReservedWord
       ) {
-        documentation = await getShellDocumentation({ word: label })
+        if (this.tldr) {
+          const tldr = this.tldr.man(label.trim())
+          documentation = {
+            value: tldr,
+            kind: LSP.MarkupKind.Markdown,
+          }
+        } else {
+          documentation = getMarkdownContent(await getShellDocumentation({ word: label }) ?? '', 'man')
+        }
       }
 
       return documentation
         ? {
             ...item,
-            documentation: getMarkdownContent(documentation, 'man'),
+            documentation: documentation,
           }
         : item
     } catch (error) {
@@ -655,6 +696,18 @@ export default class BashServer {
 
     if (!word || word.startsWith('#')) {
       return null
+    }
+
+    if (this.tldr) {
+      const man = this.tldr.man(word.trim())
+      if (man) {
+        return {
+          contents: {
+            kind: 'markdown',
+            value: man,
+          },
+        }
+      }
     }
 
     const { explainshellEndpoint } = this.config

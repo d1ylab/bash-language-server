@@ -59,6 +59,14 @@ export const ConfigSchema = z.object({
       spaceRedirects: z.boolean().default(false),
     })
     .default({}),
+  // WTF: we need add config
+  tldrLanguage: z.string().default('en'),
+  // tldr: z
+  //   .object({
+  //     enable: z.boolean().default(true),
+  //     lang: z.string().default('en'),// default to english(TODO: use enum)
+  //     cacheDir: z.string().default(join(homedir(), ".tldr", "cache")),// default to ~/.tldr/cache
+  //   })
 })
 
 export type Config = z.infer<typeof ConfigSchema>
@@ -83,6 +91,12 @@ export function getConfigFromEnvironmentVariables(): {
       funcNextLine: toBoolean(process.env.SHFMT_FUNC_NEXT_LINE),
       spaceRedirects: toBoolean(process.env.SHFMT_SPACE_REDIRECTS),
     },
+    tldrLanguage: process.env.TLDR_LANG,
+    // tldr: {
+    //   enable: toBoolean(process.env.TLDR_ENABLE),
+    //   lang: process.env.TLDR_LANG,
+    //   cacheDir: process.env.TLDR_CACHE_DIR,
+    // }
   }
 
   const environmentVariablesUsed = Object.entries(rawConfig)
